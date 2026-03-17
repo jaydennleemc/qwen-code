@@ -33,45 +33,21 @@ Qwen Code is an open-source AI agent for the terminal, optimized for [Qwen3-Code
 
 ## Installation
 
-### Quick Install (Recommended)
-
-#### Linux / macOS
-
-```bash
-bash -c "$(curl -fsSL https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen.sh)"
-```
-
-#### Windows (Run as Administrator CMD)
-
-```cmd
-curl -fsSL -o %TEMP%\install-qwen.bat https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen.bat && %TEMP%\install-qwen.bat
-```
-
-> **Note**: It's recommended to restart your terminal after installation to ensure environment variables take effect.
-
-### Manual Installation
-
-#### Prerequisites
+### Prerequisites
 
 Make sure you have Node.js 20 or later installed. Download it from [nodejs.org](https://nodejs.org/en/download).
 
 #### NPM
 
 ```bash
-npm install -g @qwen-code/qwen-code@latest
-```
-
-#### Homebrew (macOS, Linux)
-
-```bash
-brew install qwen-code
+npm i -g @jaydennleemc/qwen-code-local
 ```
 
 ## Quick Start
 
 ```bash
 # Start Qwen Code (interactive)
-qwen
+qwen-local
 
 # Then, in the session:
 /help
@@ -175,7 +151,7 @@ Here is a complete example:
 **Step 3:** Start Qwen Code — your configuration takes effect automatically:
 
 ```bash
-qwen
+qwen-local
 ```
 
 Use the `/model` command at any time to switch between all configured models.
@@ -364,16 +340,16 @@ As an open-source terminal agent, you can use Qwen Code in four primary ways:
 
 ```bash
 cd your-project/
-qwen
+qwen-local
 ```
 
-Run `qwen` in your project folder to launch the interactive terminal UI. Use `@` to reference local files (for example `@src/main.ts`).
+Run `qwen-local` in your project folder to launch the interactive terminal UI. Use `@` to reference local files (for example `@src/main.ts`).
 
 #### Headless mode
 
 ```bash
 cd your-project/
-qwen -p "your question"
+qwen-local -p "your question"
 ```
 
 Use `-p` to run Qwen Code without the interactive UI—ideal for scripts, automation, and CI/CD. Learn more: [Headless mode](https://qwenlm.github.io/qwen-code-docs/en/users/features/headless).
