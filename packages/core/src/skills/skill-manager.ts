@@ -22,7 +22,10 @@ import type { Config } from '../config/config.js';
 import { validateConfig } from './skill-load.js';
 import { createDebugLogger } from '../utils/debugLogger.js';
 import { normalizeContent } from '../utils/textUtils.js';
-import { SKILL_PROVIDER_CONFIG_DIRS } from '../config/storage.js';
+import {
+  SKILL_PROVIDER_CONFIG_DIRS,
+  USER_SKILL_PROVIDER_CONFIG_DIRS,
+} from '../config/storage.js';
 
 const debugLogger = createDebugLogger('SKILL_MANAGER');
 
@@ -438,7 +441,7 @@ export class SkillManager {
           path.join(this.config.getProjectRoot(), v, SKILLS_CONFIG_DIR),
         );
       case 'user':
-        return SKILL_PROVIDER_CONFIG_DIRS.map((v) =>
+        return USER_SKILL_PROVIDER_CONFIG_DIRS.map((v) =>
           path.join(os.homedir(), v, SKILLS_CONFIG_DIR),
         );
       case 'bundled':

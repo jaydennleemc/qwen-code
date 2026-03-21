@@ -211,7 +211,7 @@ You are a helpful assistant with this skill.
 
     it('should determine level from file path', () => {
       const projectPath = '/test/project/.qwen/skills/test-skill/SKILL.md';
-      const userPath = '/home/user/.qwen/skills/test-skill/SKILL.md';
+      const userPath = '/home/user/.qwen_local/skills/test-skill/SKILL.md';
 
       const projectConfig = manager.parseSkillContent(
         validMarkdown,
@@ -406,7 +406,11 @@ You are a helpful assistant.
         '.qwen',
         'skills',
       );
-      const userQwenSkillsDir = path.join('/home/user', '.qwen', 'skills');
+      const userQwenSkillsDir = path.join(
+        '/home/user',
+        '.qwen_local',
+        'skills',
+      );
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       vi.mocked(fs.readdir).mockImplementation((dirPath: any) => {
@@ -606,7 +610,9 @@ Skill 3 content`);
       const baseDirs = manager.getSkillsBaseDirs('user');
 
       expect(baseDirs).toHaveLength(2);
-      expect(baseDirs).toContain(path.join('/home/user', '.qwen', 'skills'));
+      expect(baseDirs).toContain(
+        path.join('/home/user', '.qwen_local', 'skills'),
+      );
       expect(baseDirs).toContain(path.join('/home/user', '.agents', 'skills'));
     });
 
@@ -626,7 +632,7 @@ Skill 3 content`);
   describe('bundled skills', () => {
     const bundledDirSegment = path.join('skills', 'bundled');
     const projectDirSegment = path.join('.qwen', 'skills');
-    const userDirSegment = path.join('.qwen', 'skills');
+    const userDirSegment = path.join('.qwen_local', 'skills');
     const projectPrefix = path.join('/test/project');
     const userPrefix = path.join('/home/user');
 

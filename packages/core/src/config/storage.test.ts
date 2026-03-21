@@ -10,8 +10,8 @@ import * as path from 'node:path';
 import { Storage } from './storage.js';
 
 describe('Storage – getGlobalSettingsPath', () => {
-  it('returns path to ~/.qwen/settings.json', () => {
-    const expected = path.join(os.homedir(), '.qwen', 'settings.json');
+  it('returns path to ~/.qwen_local/settings.json', () => {
+    const expected = path.join(os.homedir(), '.qwen_local', 'settings.json');
     expect(Storage.getGlobalSettingsPath()).toBe(expected);
   });
 });
@@ -25,8 +25,8 @@ describe('Storage – additional helpers', () => {
     expect(storage.getWorkspaceSettingsPath()).toBe(expected);
   });
 
-  it('getUserCommandsDir returns ~/.qwen/commands', () => {
-    const expected = path.join(os.homedir(), '.qwen', 'commands');
+  it('getUserCommandsDir returns ~/.qwen_local/commands', () => {
+    const expected = path.join(os.homedir(), '.qwen_local', 'commands');
     expect(Storage.getUserCommandsDir()).toBe(expected);
   });
 
@@ -35,8 +35,12 @@ describe('Storage – additional helpers', () => {
     expect(storage.getProjectCommandsDir()).toBe(expected);
   });
 
-  it('getMcpOAuthTokensPath returns ~/.qwen/mcp-oauth-tokens.json', () => {
-    const expected = path.join(os.homedir(), '.qwen', 'mcp-oauth-tokens.json');
+  it('getMcpOAuthTokensPath returns ~/.qwen_local/mcp-oauth-tokens.json', () => {
+    const expected = path.join(
+      os.homedir(),
+      '.qwen_local',
+      'mcp-oauth-tokens.json',
+    );
     expect(Storage.getMcpOAuthTokensPath()).toBe(expected);
   });
 });
@@ -240,7 +244,7 @@ describe('Storage – runtime path methods use getRuntimeBaseDir', () => {
   });
 });
 
-describe('Storage – config paths remain at ~/.qwen regardless of runtime dir', () => {
+describe('Storage – config paths remain at ~/.qwen_local regardless of runtime dir', () => {
   const originalEnv = process.env['QWEN_RUNTIME_DIR'];
   const globalQwenDir = Storage.getGlobalQwenDir();
 
@@ -258,53 +262,53 @@ describe('Storage – config paths remain at ~/.qwen regardless of runtime dir',
     }
   });
 
-  it('getGlobalSettingsPath still uses ~/.qwen', () => {
+  it('getGlobalSettingsPath still uses ~/.qwen_local', () => {
     expect(Storage.getGlobalSettingsPath()).toBe(
       path.join(globalQwenDir, 'settings.json'),
     );
   });
 
-  it('getInstallationIdPath still uses ~/.qwen', () => {
+  it('getInstallationIdPath still uses ~/.qwen_local', () => {
     expect(Storage.getInstallationIdPath()).toBe(
       path.join(globalQwenDir, 'installation_id'),
     );
   });
 
-  it('getGoogleAccountsPath still uses ~/.qwen', () => {
+  it('getGoogleAccountsPath still uses ~/.qwen_local', () => {
     expect(Storage.getGoogleAccountsPath()).toBe(
       path.join(globalQwenDir, 'google_accounts.json'),
     );
   });
 
-  it('getMcpOAuthTokensPath still uses ~/.qwen', () => {
+  it('getMcpOAuthTokensPath still uses ~/.qwen_local', () => {
     expect(Storage.getMcpOAuthTokensPath()).toBe(
       path.join(globalQwenDir, 'mcp-oauth-tokens.json'),
     );
   });
 
-  it('getOAuthCredsPath still uses ~/.qwen', () => {
+  it('getOAuthCredsPath still uses ~/.qwen_local', () => {
     expect(Storage.getOAuthCredsPath()).toBe(
       path.join(globalQwenDir, 'oauth_creds.json'),
     );
   });
 
-  it('getUserCommandsDir still uses ~/.qwen', () => {
+  it('getUserCommandsDir still uses ~/.qwen_local', () => {
     expect(Storage.getUserCommandsDir()).toBe(
       path.join(globalQwenDir, 'commands'),
     );
   });
 
-  it('getGlobalMemoryFilePath still uses ~/.qwen', () => {
+  it('getGlobalMemoryFilePath still uses ~/.qwen_local', () => {
     expect(Storage.getGlobalMemoryFilePath()).toBe(
       path.join(globalQwenDir, 'memory.md'),
     );
   });
 
-  it('getGlobalBinDir still uses ~/.qwen', () => {
+  it('getGlobalBinDir still uses ~/.qwen_local', () => {
     expect(Storage.getGlobalBinDir()).toBe(path.join(globalQwenDir, 'bin'));
   });
 
-  it('getUserSkillsDirs still includes ~/.qwen/skills', () => {
+  it('getUserSkillsDirs still includes ~/.qwen_local/skills', () => {
     const storage = new Storage('/tmp/project');
     const skillsDirs = storage.getUserSkillsDirs();
     expect(

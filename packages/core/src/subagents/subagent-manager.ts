@@ -42,6 +42,7 @@ import { BuiltinAgentRegistry } from './builtin-agents.js';
 import { ToolDisplayNamesMigration } from '../tools/tool-names.js';
 
 const QWEN_CONFIG_DIR = '.qwen';
+const QWEN_LOCAL_CONFIG_DIR = '.qwen_local';
 const AGENT_CONFIG_DIR = 'agents';
 
 /**
@@ -809,7 +810,9 @@ export class SubagentManager {
     }
 
     let baseDir = level === 'project' ? projectRoot : homeDir;
-    baseDir = path.join(baseDir, QWEN_CONFIG_DIR, AGENT_CONFIG_DIR);
+    const configDir =
+      level === 'project' ? QWEN_CONFIG_DIR : QWEN_LOCAL_CONFIG_DIR;
+    baseDir = path.join(baseDir, configDir, AGENT_CONFIG_DIR);
 
     try {
       const files = await fs.readdir(baseDir);

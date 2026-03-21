@@ -8,12 +8,13 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { getProjectHash, sanitizeCwd } from '../utils/paths.js';
+import { getProjectHash, sanitizeCwd, QWEN_LOCAL_DIR } from '../utils/paths.js';
 
 export const QWEN_DIR = '.qwen';
 export const GOOGLE_ACCOUNTS_FILENAME = 'google_accounts.json';
 export const OAUTH_FILE = 'oauth_creds.json';
 export const SKILL_PROVIDER_CONFIG_DIRS = ['.qwen', '.agents'];
+export const USER_SKILL_PROVIDER_CONFIG_DIRS = ['.qwen_local', '.agents'];
 const TMP_DIR_NAME = 'tmp';
 const BIN_DIR_NAME = 'bin';
 const PROJECT_DIR_NAME = 'projects';
@@ -120,9 +121,9 @@ export class Storage {
   static getGlobalQwenDir(): string {
     const homeDir = os.homedir();
     if (!homeDir) {
-      return path.join(os.tmpdir(), '.qwen');
+      return path.join(os.tmpdir(), QWEN_LOCAL_DIR);
     }
-    return path.join(homeDir, QWEN_DIR);
+    return path.join(homeDir, QWEN_LOCAL_DIR);
   }
 
   static getMcpOAuthTokensPath(): string {
@@ -234,13 +235,13 @@ export class Storage {
 
   getUserSkillsDirs(): string[] {
     const homeDir = os.homedir() || os.tmpdir();
-    return SKILL_PROVIDER_CONFIG_DIRS.map((dir) =>
+    return USER_SKILL_PROVIDER_CONFIG_DIRS.map((dir) =>
       path.join(homeDir, dir, 'skills'),
     );
   }
 
   /**
-   * Returns the user-level extensions directory (~/.qwen/extensions/).
+   * Returns the user-level extensions directory (~/.qwen_local/extensions/).
    * Extensions installed at user scope are stored here, as opposed to
    * project-level extensions which live in <project>/.qwen/extensions/.
    */
