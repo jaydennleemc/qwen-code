@@ -10,19 +10,21 @@ import type {
   ModelProvidersConfig,
   ProviderModelConfig,
 } from '@qwen-code/qwen-code-core';
+
 import {
   AuthEvent,
   AuthType,
+  CodingPlanRegion,
   getErrorMessage,
   logAuth,
   getCodingPlanConfig,
   isCodingPlanConfig,
-  CodingPlanRegion,
   CODING_PLAN_ENV_KEY,
 } from '@qwen-code/qwen-code-core';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { LoadedSettings } from '../../config/settings.js';
 import { getPersistScopeForModelSelection } from '../../config/modelProvidersScope.js';
+import { updateSettingsFilePreservingFormat } from '../../utils/commentJson.js';
 // OpenAICredentials type (previously imported from OpenAIKeyPrompt)
 export interface OpenAICredentials {
   apiKey: string;
@@ -40,11 +42,11 @@ import {
   type AlibabaStandardRegion,
 } from '../../constants/alibabaStandardApiKey.js';
 import {
-  applyOpenRouterModelsConfiguration,
   createOpenRouterOAuthSession,
   OPENROUTER_OAUTH_CALLBACK_URL,
   runOpenRouterOAuthLogin,
-} from '../../commands/auth/openrouterOAuth.js';
+  applyOpenRouterModelsConfiguration,
+} from '../../auth/providers/oauth/openrouterOAuth.js';
 
 /**
  * Generate a Qwen-managed env key from protocol and base URL.
@@ -88,6 +90,56 @@ export function maskApiKey(apiKey: string): string {
 }
 
 export type { QwenAuthState } from '../hooks/useQwenAuth.js';
+
+/** @deprecated Use normalizeCustomModelIds instead. */
+export const normalizeModelIds = normalizeCustomModelIds;
+
+export type AuthUiState = {
+  authError: string | null;
+  isAuthDialogOpen: boolean;
+  isAuthenticating: boolean;
+  pendingAuthType: AuthType | undefined;
+  externalAuthState: {
+    title: string;
+    message: string;
+    detail?: string;
+  } | null;
+  qwenAuthState: ReturnType<typeof useQwenAuth>['qwenAuthState'];
+};
+
+export type AuthController = {
+  state: AuthUiState;
+  actions: {
+    setAuthState: (state: AuthState) => void;
+    onAuthError: (error: string | null) => void;
+    handleAuthSelect: (
+      authType: AuthType | undefined,
+      credentials?: OpenAICredentials,
+    ) => Promise<void>;
+    handleCodingPlanSubmit: (
+      apiKey: string,
+      region?: CodingPlanRegion,
+    ) => Promise<void>;
+    handleAlibabaStandardSubmit: (
+      apiKey: string,
+      region: AlibabaStandardRegion,
+      modelIds: string,
+    ) => Promise<void>;
+    handleOpenRouterSubmit: () => Promise<void>;
+    handleCustomApiKeySubmit: (
+      protocol:
+        | AuthType.USE_OPENAI
+        | AuthType.USE_ANTHROPIC
+        | AuthType.USE_GEMINI,
+      baseUrl: string,
+      apiKey: string,
+      modelIds: string,
+      generationConfig?: Record<string, unknown>,
+    ) => Promise<void>;
+    openAuthDialog: () => void;
+    cancelAuthentication: () => void;
+  };
+};
 
 export const useAuthCommand = (
   settings: LoadedSettings,
@@ -267,13 +319,27 @@ export const useAuthCommand = (
   const handleAuthSelect = useCallback(
     async (authType: AuthType | undefined, credentials?: OpenAICredentials) => {
       if (!authType) {
+        const authTypeScope = getPersistScopeForModelSelection(settings);
+        settings.setValue(authTypeScope, 'security.auth', undefined);
+        settings.setValue(authTypeScope, 'model.name', undefined);
+        updateSettingsFilePreservingFormat(
+          settings.user.path,
+          settings.user.originalSettings as Record<string, unknown>,
+        );
+        config.updateCredentials({
+          apiKey: undefined,
+          baseUrl: undefined,
+          model: undefined,
+        });
         setIsAuthDialogOpen(false);
         setAuthError(null);
+        process.exit(0);
         return;
       }
 
       if (
-        authType === AuthType.USE_OPENAI &&
+        (authType === AuthType.USE_OPENAI ||
+          authType === AuthType.USE_LM_STUDIO) &&
         credentials?.model &&
         isProviderManagedModel(authType, credentials.model)
       ) {
@@ -291,7 +357,11 @@ export const useAuthCommand = (
       setIsAuthDialogOpen(false);
       setIsAuthenticating(true);
 
-      if (authType === AuthType.USE_OPENAI) {
+      if (
+        authType === AuthType.USE_OPENAI ||
+        authType === AuthType.USE_LM_STUDIO ||
+        authType === AuthType.USE_OLLAMA
+      ) {
         if (credentials) {
           // Pass settings.model.generationConfig to updateCredentials so it can be merged
           // after clearing provider-sourced config. This ensures settings.json generationConfig
@@ -306,6 +376,31 @@ export const useAuthCommand = (
             },
             settingsGenerationConfig,
           );
+
+          if (authType === AuthType.USE_OLLAMA && credentials.model) {
+            const authTypeScope = getPersistScopeForModelSelection(settings);
+            settings.setValue(authTypeScope, 'security.auth', {
+              selectedType: authType,
+            });
+            settings.setValue(authTypeScope, 'model.name', credentials.model);
+            updateSettingsFilePreservingFormat(
+              settings.user.path,
+              settings.user.originalSettings as Record<string, unknown>,
+            );
+          }
+
+          if (authType === AuthType.USE_LM_STUDIO && credentials.model) {
+            const authTypeScope = getPersistScopeForModelSelection(settings);
+            settings.setValue(authTypeScope, 'security.auth', {
+              selectedType: authType,
+            });
+            settings.setValue(authTypeScope, 'model.name', credentials.model);
+            updateSettingsFilePreservingFormat(
+              settings.user.path,
+              settings.user.originalSettings as Record<string, unknown>,
+            );
+          }
+
           await performAuth(authType, credentials);
         }
         return;
@@ -313,13 +408,7 @@ export const useAuthCommand = (
 
       await performAuth(authType);
     },
-    [
-      config,
-      performAuth,
-      isProviderManagedModel,
-      onAuthError,
-      settings.merged.model?.generationConfig,
-    ],
+    [config, performAuth, isProviderManagedModel, onAuthError, settings],
   );
 
   const openAuthDialog = useCallback(() => {
@@ -937,6 +1026,51 @@ export const useAuthCommand = (
     }
   }, [onAuthError]);
 
+  // -- Public interface ----------------------------------------------------
+  const state = useMemo<AuthUiState>(
+    () => ({
+      authError,
+      isAuthDialogOpen,
+      isAuthenticating,
+      pendingAuthType,
+      externalAuthState,
+      qwenAuthState,
+    }),
+    [
+      authError,
+      isAuthDialogOpen,
+      isAuthenticating,
+      pendingAuthType,
+      externalAuthState,
+      qwenAuthState,
+    ],
+  );
+
+  const actions = useMemo<AuthController['actions']>(
+    () => ({
+      setAuthState,
+      onAuthError,
+      handleAuthSelect,
+      handleCodingPlanSubmit,
+      handleAlibabaStandardSubmit,
+      handleOpenRouterSubmit,
+      handleCustomApiKeySubmit,
+      openAuthDialog,
+      cancelAuthentication,
+    }),
+    [
+      setAuthState,
+      onAuthError,
+      handleAuthSelect,
+      handleCodingPlanSubmit,
+      handleAlibabaStandardSubmit,
+      handleOpenRouterSubmit,
+      handleCustomApiKeySubmit,
+      openAuthDialog,
+      cancelAuthentication,
+    ],
+  );
+
   return {
     authState,
     setAuthState,
@@ -954,5 +1088,7 @@ export const useAuthCommand = (
     handleCustomApiKeySubmit,
     openAuthDialog,
     cancelAuthentication,
+    state,
+    actions,
   };
 };

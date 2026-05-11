@@ -5,7 +5,7 @@
  */
 
 import type React from 'react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   AuthType,
   CodingPlanRegion,
@@ -16,7 +16,11 @@ import Link from 'ink-link';
 import { theme } from '../semantic-colors.js';
 import { useKeypress } from '../hooks/useKeypress.js';
 import { DescriptiveRadioButtonSelect } from '../components/shared/DescriptiveRadioButtonSelect.js';
-import { ApiKeyInput } from '../components/ApiKeyInput.js';
+import {
+  ApiKeyInput,
+  CODING_PLAN_API_KEY_URL,
+  CODING_PLAN_INTL_API_KEY_URL,
+} from '../components/ApiKeyInput.js';
 import { TextInput } from '../components/shared/TextInput.js';
 import { useUIState } from '../contexts/UIStateContext.js';
 import { useUIActions } from '../contexts/UIActionsContext.js';
@@ -48,7 +52,14 @@ function parseDefaultAuthType(
 }
 
 // Main menu option type
-type MainOption = 'OAUTH' | 'CODING_PLAN' | 'API_KEY';
+type MainOption =
+  | typeof AuthType.QWEN_OAUTH
+  | typeof AuthType.USE_LM_STUDIO
+  | typeof AuthType.USE_OLLAMA
+  | 'CODING_PLAN'
+  | 'API_KEY'
+  | 'LOGOUT'
+  | 'OAUTH';
 type ApiKeyOption =
   | 'OPENROUTER_OAUTH'
   | 'ALIBABA_STANDARD_API_KEY'
@@ -73,7 +84,11 @@ type ViewLevel =
   | 'custom-model-id-input'
   | 'custom-advanced-config'
   | 'custom-review-json'
-  | 'oauth-provider-select';
+  | 'oauth-provider-select'
+  | 'custom-info'
+  | 'lm-studio-input'
+  | 'ollama-input'
+  | 'ollama-models';
 
 const ALIBABA_STANDARD_MODEL_IDS_PLACEHOLDER = 'qwen3.5-plus,glm-5,kimi-k2.5';
 const ALIBABA_STANDARD_API_DOCUMENTATION_URLS: Record<
@@ -90,16 +105,21 @@ const ALIBABA_STANDARD_API_DOCUMENTATION_URLS: Record<
 };
 
 export function AuthDialog(): React.JSX.Element {
-  const { pendingAuthType, authError } = useUIState();
   const {
-    handleAuthSelect: onAuthSelect,
-    handleCodingPlanSubmit,
-    handleAlibabaStandardSubmit,
-    handleOpenRouterSubmit,
-    handleCustomApiKeySubmit,
-    onAuthError,
+    auth: { pendingAuthType, authError },
+  } = useUIState();
+  const {
+    auth: {
+      handleAuthSelect: onAuthSelect,
+      handleCodingPlanSubmit,
+      handleAlibabaStandardSubmit,
+      handleOpenRouterSubmit,
+      handleCustomApiKeySubmit,
+      onAuthError,
+    },
   } = useUIActions();
   const config = useConfig();
+  const savedConfig = config.getContentGeneratorConfig();
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [viewLevel, setViewLevel] = useState<ViewLevel>('main');
@@ -145,8 +165,70 @@ export function AuthDialog(): React.JSX.Element {
   const [focusedConfigIndex, setFocusedConfigIndex] = useState(0);
   // 0 = thinking, 1 = modality
 
+  // LM Sutdio & Ollama Local LLM
+  const [lmStudioBaseUrl, setLmStudioBaseUrl] = useState<string>(
+    savedConfig?.baseUrl?.includes('1234')
+      ? savedConfig.baseUrl
+      : 'http://localhost:1234/v1',
+  );
+  const [lmStudioApiKey, setLmStudioApiKey] = useState<string>(
+    savedConfig?.apiKey || '',
+  );
+  const [lmStudioStep, setLmStudioStep] = useState<'baseUrl' | 'apiKey'>(
+    'baseUrl',
+  );
+  const [ollamaBaseUrl, setOllamaBaseUrl] = useState<string>(
+    savedConfig?.baseUrl?.includes('11434')
+      ? savedConfig.baseUrl
+      : 'http://localhost:11434/v1',
+  );
+  const [ollamaApiKey, setOllamaApiKey] = useState<string>(
+    savedConfig?.apiKey || '',
+  );
+  const [ollamaStep, setOllamaStep] = useState<'baseUrl' | 'apiKey' | 'models'>(
+    'baseUrl',
+  );
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [loadingOllamaModels, setLoadingOllamaModels] =
+    useState<boolean>(false);
+  const [selectedOllamaModel, setSelectedOllamaModel] = useState<string>(
+    savedConfig?.model || '',
+  );
+
+  useEffect(() => {
+    const currentAuthType = config.getAuthType();
+    const contentGenConfig = config.getContentGeneratorConfig();
+
+    if (currentAuthType === AuthType.USE_LM_STUDIO && contentGenConfig) {
+      if (contentGenConfig.baseUrl) {
+        setLmStudioBaseUrl(contentGenConfig.baseUrl);
+      }
+      if (contentGenConfig.apiKey) {
+        setLmStudioApiKey(contentGenConfig.apiKey);
+      }
+    }
+
+    if (currentAuthType === AuthType.USE_OLLAMA && contentGenConfig) {
+      if (contentGenConfig.baseUrl) {
+        setOllamaBaseUrl(contentGenConfig.baseUrl);
+      }
+      if (contentGenConfig.apiKey) {
+        setOllamaApiKey(contentGenConfig.apiKey);
+      }
+      if (contentGenConfig.model) {
+        setSelectedOllamaModel(contentGenConfig.model);
+      }
+    }
+  }, [config]);
+
   // Main authentication entries (flat three-option layout)
-  const mainItems = [
+  const mainItems: Array<{
+    key: string;
+    title: string;
+    label: string;
+    description: string | React.ReactNode;
+    value: MainOption;
+  }> = [
     {
       key: 'CODING_PLAN',
       title: t('Alibaba Cloud Coding Plan'),
@@ -154,14 +236,39 @@ export function AuthDialog(): React.JSX.Element {
       description: t(
         'Paid \u00B7 Up to 6,000 requests/5 hrs \u00B7 All Alibaba Cloud Coding Plan Models',
       ),
-      value: 'CODING_PLAN' as MainOption,
+      value: 'CODING_PLAN',
     },
     {
       key: 'API_KEY',
       title: t('API Key'),
       label: t('API Key'),
       description: t('Bring your own API key'),
-      value: 'API_KEY' as MainOption,
+      value: 'API_KEY',
+    },
+    {
+      key: AuthType.USE_LM_STUDIO,
+      title: t('LM Studio'),
+      label: t('LM Studio'),
+      description: t(
+        'Local \u00B7 No API key required \u00B7 Run models on your machine',
+      ),
+      value: AuthType.USE_LM_STUDIO,
+    },
+    {
+      key: AuthType.USE_OLLAMA,
+      title: t('Ollama'),
+      label: t('Ollama'),
+      description: t(
+        'Local \u00B7 No API key required \u00B7 Run models on your machine',
+      ),
+      value: AuthType.USE_OLLAMA,
+    },
+    {
+      key: 'LOGOUT',
+      title: t('Logout'),
+      label: t('Logout'),
+      description: t('Clear current login and credentials'),
+      value: 'LOGOUT',
     },
     {
       key: 'OAUTH',
@@ -348,6 +455,8 @@ export function AuthDialog(): React.JSX.Element {
     ) !== false;
   const authTypeToMainOption = (authType: AuthType): MainOption => {
     if (authType === AuthType.QWEN_OAUTH) return 'OAUTH';
+    if (authType === AuthType.USE_LM_STUDIO) return AuthType.USE_LM_STUDIO;
+    if (authType === AuthType.USE_OLLAMA) return AuthType.USE_OLLAMA;
     if (authType === AuthType.USE_OPENAI && isCurrentlyCodingPlan) {
       return 'CODING_PLAN';
     }
@@ -398,6 +507,21 @@ export function AuthDialog(): React.JSX.Element {
 
     if (value === 'OAUTH') {
       setViewLevel('oauth-provider-select');
+      return;
+    }
+
+    if (value === AuthType.USE_LM_STUDIO) {
+      setViewLevel('lm-studio-input');
+      return;
+    }
+
+    if (value === AuthType.USE_OLLAMA) {
+      setViewLevel('ollama-input');
+      return;
+    }
+
+    if (value === 'LOGOUT') {
+      await onAuthSelect(undefined);
       return;
     }
 
@@ -612,6 +736,68 @@ export function AuthDialog(): React.JSX.Element {
     );
   };
 
+  // Handle LM Studio & Ollama LLM
+  const handleLmStudioSubmit = async () => {
+    setErrorMessage(null);
+
+    if (!lmStudioApiKey.trim()) {
+      setErrorMessage(t('API key cannot be empty.'));
+      return;
+    }
+
+    await onAuthSelect(AuthType.USE_LM_STUDIO, {
+      apiKey: lmStudioApiKey,
+      baseUrl: lmStudioBaseUrl,
+    });
+  };
+
+  const handleOllamaSubmit = async () => {
+    setErrorMessage(null);
+    setLoadingOllamaModels(true);
+
+    try {
+      const url = `${ollamaBaseUrl.replace('/v1', '')}/api/tags`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: ollamaApiKey
+          ? { Authorization: `Bearer ${ollamaApiKey}` }
+          : {},
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch models: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const models = (data.models || []).map((m: { name: string }) => m.name);
+
+      if (models.length === 0) {
+        setErrorMessage(t('No models found on Ollama server'));
+        return;
+      }
+
+      setOllamaModels(models);
+      setSelectedOllamaModel(models[0]);
+      setOllamaStep('models');
+    } catch (err) {
+      setErrorMessage(
+        t('Failed to connect to Ollama: {{error}}', {
+          error: err instanceof Error ? err.message : 'Unknown error',
+        }),
+      );
+    } finally {
+      setLoadingOllamaModels(false);
+    }
+  };
+
+  const handleOllamaModelSelect = async (model: string) => {
+    await onAuthSelect(AuthType.USE_OLLAMA, {
+      apiKey: ollamaApiKey,
+      baseUrl: ollamaBaseUrl,
+      model,
+    });
+  };
+
   const handleGoBack = () => {
     setErrorMessage(null);
     onAuthError(null);
@@ -642,6 +828,14 @@ export function AuthDialog(): React.JSX.Element {
       setViewLevel('alibaba-standard-api-key-input');
     } else if (viewLevel === 'oauth-provider-select') {
       setViewLevel('main');
+    } else if (
+      viewLevel === 'lm-studio-input' ||
+      viewLevel === 'ollama-input' ||
+      viewLevel === 'ollama-models'
+    ) {
+      setViewLevel('main');
+      setLmStudioStep('baseUrl');
+      setOllamaStep('baseUrl');
     }
   };
 
@@ -677,6 +871,27 @@ export function AuthDialog(): React.JSX.Element {
           viewLevel === 'oauth-provider-select'
         ) {
           handleGoBack();
+          return;
+        }
+
+        // Handle LM Studio & Ollama selection
+        if (viewLevel === 'lm-studio-input') {
+          if (lmStudioStep === 'apiKey') {
+            setLmStudioStep('baseUrl');
+          } else {
+            handleGoBack();
+          }
+          return;
+        }
+
+        if (viewLevel === 'ollama-input') {
+          if (ollamaStep === 'models') {
+            setOllamaStep('apiKey');
+          } else if (ollamaStep === 'apiKey') {
+            setOllamaStep('baseUrl');
+          } else {
+            handleGoBack();
+          }
           return;
         }
 
@@ -785,15 +1000,26 @@ export function AuthDialog(): React.JSX.Element {
   );
 
   // Render API key input for coding-plan mode
-  const renderApiKeyInputView = () => (
-    <Box marginTop={1}>
-      <ApiKeyInput
-        onSubmit={handleApiKeyInputSubmit}
-        onCancel={handleGoBack}
-        region={region}
-      />
-    </Box>
-  );
+  const renderApiKeyInputView = () => {
+    const isChina = region === CodingPlanRegion.CHINA;
+    return (
+      <Box marginTop={1}>
+        <ApiKeyInput
+          onSubmit={handleApiKeyInputSubmit}
+          onCancel={handleGoBack}
+          plan={{
+            apiKeyUrl: isChina
+              ? CODING_PLAN_API_KEY_URL
+              : CODING_PLAN_INTL_API_KEY_URL,
+            helpText: t(
+              'Enter the Coding Plan API key from Alibaba Cloud ModelStudio.',
+            ),
+            placeholder: t('sk-...'),
+          }}
+        />
+      </Box>
+    );
+  };
 
   const renderApiKeyTypeSelectView = () => (
     <>
@@ -1216,6 +1442,187 @@ export function AuthDialog(): React.JSX.Element {
     </>
   );
 
+  // Render LM Studio input - two-step flow
+  const renderLmStudioInputView = () => (
+    <>
+      <Box marginTop={1}>
+        <Text bold color={theme.text.primary}>
+          {t('LM Studio')}
+        </Text>
+      </Box>
+      <Box marginTop={0}>
+        <Text color={theme.text.secondary}>
+          {t('Connect to local models via LM Studio')}
+        </Text>
+      </Box>
+
+      {lmStudioStep === 'baseUrl' && (
+        <>
+          <Box marginTop={1}>
+            <Text color={theme.text.secondary}>{t('Server URL:')}</Text>
+          </Box>
+          <Box marginTop={0}>
+            <TextInput
+              value={lmStudioBaseUrl}
+              onChange={setLmStudioBaseUrl}
+              onSubmit={() => setLmStudioStep('apiKey')}
+              placeholder={t('http://localhost:1234/v1')}
+            />
+          </Box>
+          <Box marginTop={1}>
+            <Text color={theme.text.secondary}>
+              {t('↑↓ to navigate, Enter to continue, Esc to go back')}
+            </Text>
+          </Box>
+        </>
+      )}
+
+      {lmStudioStep === 'apiKey' && (
+        <>
+          <Box marginTop={1}>
+            <Text color={theme.text.secondary}>
+              {t('Server')}:{' '}
+              <Text color={theme.text.primary}>{lmStudioBaseUrl}</Text>
+            </Text>
+          </Box>
+          <Box marginTop={1}>
+            <Text color={theme.text.secondary}>{t('API Key:')}</Text>
+          </Box>
+          <Box marginTop={0}>
+            <TextInput
+              value={lmStudioApiKey}
+              onChange={setLmStudioApiKey}
+              onSubmit={handleLmStudioSubmit}
+              placeholder={t('Enter your API key (optional for local models)')}
+            />
+          </Box>
+          {errorMessage && (
+            <Box marginTop={1}>
+              <Text color={theme.status.error}>{errorMessage}</Text>
+            </Box>
+          )}
+          <Box marginTop={1}>
+            <Text color={theme.text.secondary}>
+              {t('↑↓ to navigate, Enter to submit, Esc to go back')}
+            </Text>
+          </Box>
+        </>
+      )}
+    </>
+  );
+
+  const renderOllamaInputView = () => (
+    <>
+      <Box marginTop={1}>
+        <Text bold color={theme.text.primary}>
+          {t('Ollama')}
+        </Text>
+      </Box>
+      <Box marginTop={0}>
+        <Text color={theme.text.secondary}>
+          {t('Connect to local models via Ollama')}
+        </Text>
+      </Box>
+
+      {ollamaStep === 'baseUrl' && (
+        <>
+          <Box marginTop={1}>
+            <Text color={theme.text.secondary}>{t('Server URL:')}</Text>
+          </Box>
+          <Box marginTop={0}>
+            <TextInput
+              value={ollamaBaseUrl}
+              onChange={setOllamaBaseUrl}
+              onSubmit={() => setOllamaStep('apiKey')}
+              placeholder={t('http://localhost:11434/v1')}
+            />
+          </Box>
+          <Box marginTop={1}>
+            <Text color={theme.text.secondary}>
+              {t('↑↓ to navigate, Enter to continue, Esc to go back')}
+            </Text>
+          </Box>
+        </>
+      )}
+
+      {ollamaStep === 'apiKey' && (
+        <>
+          <Box marginTop={1}>
+            <Text color={theme.text.secondary}>
+              {t('Server')}:{' '}
+              <Text color={theme.text.primary}>{ollamaBaseUrl}</Text>
+            </Text>
+          </Box>
+          <Box marginTop={1}>
+            <Text color={theme.text.secondary}>{t('API Key:')}</Text>
+          </Box>
+          <Box marginTop={0}>
+            <TextInput
+              value={ollamaApiKey}
+              onChange={setOllamaApiKey}
+              onSubmit={handleOllamaSubmit}
+              placeholder={t('Enter your API key (optional for local models)')}
+            />
+          </Box>
+          {errorMessage && (
+            <Box marginTop={1}>
+              <Text color={theme.status.error}>{errorMessage}</Text>
+            </Box>
+          )}
+          <Box marginTop={1}>
+            <Text color={theme.text.secondary}>
+              {t('↑↓ to navigate, Enter to fetch models, Esc to go back')}
+            </Text>
+          </Box>
+        </>
+      )}
+
+      {ollamaStep === 'models' && (
+        <>
+          <Box marginTop={1}>
+            <Text color={theme.text.secondary}>
+              {t('Server')}:{' '}
+              <Text color={theme.text.primary}>{ollamaBaseUrl}</Text>
+            </Text>
+          </Box>
+          <Box marginTop={1}>
+            <Text color={theme.text.secondary}>{t('Select Model:')}</Text>
+          </Box>
+          <Box marginTop={0}>
+            {loadingOllamaModels ? (
+              <Text color={theme.text.secondary}>{t('Loading models...')}</Text>
+            ) : (
+              <DescriptiveRadioButtonSelect
+                items={ollamaModels.map((m) => ({
+                  key: m,
+                  title: m,
+                  description: '',
+                  value: m,
+                }))}
+                initialIndex={ollamaModels.indexOf(selectedOllamaModel)}
+                onSelect={(val) => {
+                  setSelectedOllamaModel(val);
+                  handleOllamaModelSelect(val);
+                }}
+                maxItemsToShow={5}
+              />
+            )}
+          </Box>
+          {errorMessage && (
+            <Box marginTop={1}>
+              <Text color={theme.status.error}>{errorMessage}</Text>
+            </Box>
+          )}
+          <Box marginTop={1}>
+            <Text color={theme.text.secondary}>
+              {t('↑↓ to navigate, Enter to select, Esc to go back')}
+            </Text>
+          </Box>
+        </>
+      )}
+    </>
+  );
+
   const getViewTitle = () => {
     switch (viewLevel) {
       case 'main':
@@ -1248,6 +1655,10 @@ export function AuthDialog(): React.JSX.Element {
         return t('Enter Model IDs');
       case 'oauth-provider-select':
         return t('Select OAuth Provider');
+      case 'lm-studio-input':
+        return t('LM Studio');
+      case 'ollama-input':
+        return t('Ollama');
       default:
         return t('Select Authentication Method');
     }
@@ -1282,6 +1693,8 @@ export function AuthDialog(): React.JSX.Element {
         renderCustomAdvancedConfigView()}
       {viewLevel === 'custom-review-json' && renderCustomReviewJsonView()}
       {viewLevel === 'oauth-provider-select' && renderOAuthProviderSelectView()}
+      {viewLevel === 'lm-studio-input' && renderLmStudioInputView()}
+      {viewLevel === 'ollama-input' && renderOllamaInputView()}
 
       {(authError || errorMessage) && (
         <Box marginTop={1}>

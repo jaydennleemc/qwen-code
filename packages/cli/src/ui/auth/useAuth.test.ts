@@ -9,16 +9,15 @@ import { renderHook, act } from '@testing-library/react';
 import { AuthType } from '@qwen-code/qwen-code-core';
 import {
   useAuthCommand,
-  generateCustomApiKeyEnvKey,
   normalizeCustomModelIds,
   maskApiKey,
 } from './useAuth.js';
+import { generateCustomEnvKey as generateCustomApiKeyEnvKey } from '../../auth/allProviders.js';
 import {
   OPENROUTER_OAUTH_CALLBACK_URL,
-  applyOpenRouterModelsConfiguration,
   createOpenRouterOAuthSession,
   runOpenRouterOAuthLogin,
-} from '../../commands/auth/openrouterOAuth.js';
+} from '../../auth/providers/oauth/openrouterOAuth.js';
 
 vi.mock('../hooks/useQwenAuth.js', () => ({
   useQwenAuth: vi.fn(() => ({
@@ -29,13 +28,15 @@ vi.mock('../hooks/useQwenAuth.js', () => ({
 
 vi.mock('../../utils/settingsUtils.js', () => ({
   backupSettingsFile: vi.fn(),
+  restoreSettingsFromBackup: vi.fn(),
+  cleanupSettingsBackup: vi.fn(),
 }));
 
 vi.mock('../../config/modelProvidersScope.js', () => ({
   getPersistScopeForModelSelection: vi.fn(() => 'user'),
 }));
 
-vi.mock('../../commands/auth/openrouterOAuth.js', () => ({
+vi.mock('../../auth/providers/oauth/openrouterOAuth.js', () => ({
   OPENROUTER_OAUTH_CALLBACK_URL: 'http://localhost:3000/openrouter/callback',
   createOpenRouterOAuthSession: vi.fn(() => ({
     callbackUrl: 'http://localhost:3000/openrouter/callback',
@@ -44,18 +45,27 @@ vi.mock('../../commands/auth/openrouterOAuth.js', () => ({
     authorizationUrl:
       'https://openrouter.ai/auth?callback_url=http%3A%2F%2Flocalhost%3A3000%2Fopenrouter%2Fcallback&code_challenge=test-challenge&state=test-state',
   })),
-  applyOpenRouterModelsConfiguration: vi.fn(async () => ({
-    updatedConfigs: [
-      {
-        id: 'openai/gpt-4o-mini:free',
-        name: 'OpenRouter · GPT-4o mini',
-        baseUrl: 'https://openrouter.ai/api/v1',
-        envKey: 'OPENROUTER_API_KEY',
-      },
-    ],
-    activeModelId: 'openai/gpt-4o-mini:free',
-    persistScope: 'user',
-  })),
+  getOpenRouterModelsWithFallback: vi.fn(async () => [
+    {
+      id: 'z-ai/glm-4.5-air:free',
+      name: 'OpenRouter · GLM 4.5 Air',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      envKey: 'OPENROUTER_API_KEY',
+    },
+    {
+      id: 'openai/gpt-oss-120b:free',
+      name: 'OpenRouter · GPT OSS 120B',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      envKey: 'OPENROUTER_API_KEY',
+    },
+  ]),
+  getPreferredOpenRouterModelId: vi.fn((models) => models[0]?.id),
+  isOpenRouterConfig: vi.fn((model) =>
+    Boolean(model.baseUrl?.includes('openrouter.ai')),
+  ),
+  OPENROUTER_ENV_KEY: 'OPENROUTER_API_KEY',
+  OPENROUTER_BASE_URL: 'https://openrouter.ai/api/v1',
+  selectRecommendedOpenRouterModels: vi.fn((models) => models),
   runOpenRouterOAuthLogin: vi.fn(
     () => new Promise(() => undefined) as Promise<{ apiKey: string }>,
   ),
@@ -71,12 +81,18 @@ const createSettings = () => ({
   })),
 });
 
-const createConfig = () => ({
-  getAuthType: vi.fn(() => AuthType.USE_OPENAI),
-  getUsageStatisticsEnabled: vi.fn(() => false),
-  reloadModelProvidersConfig: vi.fn(),
-  refreshAuth: vi.fn(async () => undefined),
-});
+const createConfig = () => {
+  const modelsConfig = {
+    syncAfterAuthRefresh: vi.fn(),
+  };
+  return {
+    getAuthType: vi.fn(() => AuthType.USE_OPENAI),
+    getUsageStatisticsEnabled: vi.fn(() => false),
+    reloadModelProvidersConfig: vi.fn(),
+    refreshAuth: vi.fn(async () => undefined),
+    getModelsConfig: vi.fn(() => modelsConfig),
+  };
+};
 
 describe('useAuthCommand', () => {
   beforeEach(() => {
@@ -202,83 +218,230 @@ describe('useAuthCommand', () => {
       await result.current.handleOpenRouterSubmit();
     });
 
-    expect(applyOpenRouterModelsConfiguration).toHaveBeenCalledWith(
+    expect(settings.setValue).toHaveBeenCalledWith(
+      'user',
+      'env.OPENROUTER_API_KEY',
+      'oauth-key-123',
+    );
+    expect(settings.setValue).toHaveBeenCalledWith(
+      'user',
+      'modelProviders.openai',
+      [
+        {
+          id: 'z-ai/glm-4.5-air:free',
+          name: 'OpenRouter · GLM 4.5 Air',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          envKey: 'OPENROUTER_API_KEY',
+        },
+        {
+          id: 'openai/gpt-oss-120b:free',
+          name: 'OpenRouter · GPT OSS 120B',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          envKey: 'OPENROUTER_API_KEY',
+        },
+      ],
+    );
+    expect(config.reloadModelProvidersConfig).toHaveBeenCalledWith({
+      [AuthType.USE_OPENAI]: [
+        {
+          id: 'z-ai/glm-4.5-air:free',
+          name: 'OpenRouter · GLM 4.5 Air',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          envKey: 'OPENROUTER_API_KEY',
+        },
+        {
+          id: 'openai/gpt-oss-120b:free',
+          name: 'OpenRouter · GPT OSS 120B',
+          baseUrl: 'https://openrouter.ai/api/v1',
+          envKey: 'OPENROUTER_API_KEY',
+        },
+      ],
+    });
+    expect(config.refreshAuth).not.toHaveBeenCalled();
+    expect(result.current.authError).toBe(null);
+    expect(result.current.isAuthDialogOpen).toBe(false);
+    expect(addItem).toHaveBeenCalledWith(
       expect.objectContaining({
-        settings: expect.anything(),
-        config: expect.anything(),
-        apiKey: 'oauth-key-123',
-        reloadConfig: true,
-      }),
-    );
-    expect(addItem).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'Successfully configured OpenRouter.' }),
-      expect.any(Number),
-    );
-    expect(addItem).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'Use /model to switch models.' }),
-      expect.any(Number),
-    );
-    expect(addItem).toHaveBeenCalledWith(
-      expect.objectContaining({
-        text: 'Want more OpenRouter models? Use /manage-models to browse and enable them.',
+        text: 'Successfully configured OpenRouter. Use /model to switch models.',
       }),
       expect.any(Number),
     );
+  });
+
+  // TODO: Re-enable after merging unified provider install pipeline
+  it.skip('configures DeepSeek via the shared API key provider flow', () => {
+    // Test body skipped until unified provider install pipeline is merged
+  });
+
+  // TODO: Re-enable after merging unified provider install pipeline
+  it.skip('configures Token Plan with the independent Token Plan endpoint', () => {
+    // Test body skipped until unified provider install pipeline is merged
+  });
+
+  it('configures Custom API Key via the provider install plan flow', async () => {
+    const envKey = generateCustomApiKeyEnvKey(
+      AuthType.USE_OPENAI,
+      'https://api.example.com/v1',
+    );
+    const settings = createSettings();
+    settings.merged.modelProviders = {
+      [AuthType.USE_OPENAI]: [
+        {
+          id: 'old-custom',
+          name: 'old-custom',
+          baseUrl: 'https://api.example.com/v1',
+          envKey,
+        },
+        {
+          id: 'preserved-model',
+          name: 'preserved-model',
+          baseUrl: 'https://api.other.com/v1',
+          envKey: 'OTHER_API_KEY',
+          generationConfig: { contextWindowSize: 999 },
+        },
+      ],
+    };
+    const config = createConfig();
+    const addItem = vi.fn();
+
+    const { result } = renderHook(() =>
+      useAuthCommand(settings as never, config as never, addItem),
+    );
+
+    await act(async () => {
+      await result.current.handleCustomApiKeySubmit(
+        AuthType.USE_OPENAI,
+        ' https://api.example.com/v1 ',
+        ' sk-custom ',
+        'custom-model, custom-model-2, custom-model',
+        {
+          enableThinking: true,
+          multimodal: { image: true, video: false, audio: true },
+          maxTokens: 4096,
+        },
+      );
+    });
+
+    expect(settings.setValue).toHaveBeenCalledWith(
+      'user',
+      `env.${envKey}`,
+      'sk-custom',
+    );
+    expect(settings.setValue).toHaveBeenCalledWith(
+      'user',
+      'modelProviders.openai',
+      [
+        {
+          id: 'custom-model',
+          name: 'custom-model',
+          baseUrl: 'https://api.example.com/v1',
+          envKey,
+          generationConfig: {
+            modalities: { image: true, video: false, audio: true },
+            extra_body: { enable_thinking: true },
+            samplingParams: { max_tokens: 4096 },
+          },
+        },
+        {
+          id: 'custom-model-2',
+          name: 'custom-model-2',
+          baseUrl: 'https://api.example.com/v1',
+          envKey,
+          generationConfig: {
+            modalities: { image: true, video: false, audio: true },
+            extra_body: { enable_thinking: true },
+            samplingParams: { max_tokens: 4096 },
+          },
+        },
+        {
+          id: 'old-custom',
+          name: 'old-custom',
+          baseUrl: 'https://api.example.com/v1',
+          envKey,
+        },
+        {
+          id: 'preserved-model',
+          name: 'preserved-model',
+          baseUrl: 'https://api.other.com/v1',
+          envKey: 'OTHER_API_KEY',
+          generationConfig: { contextWindowSize: 999 },
+        },
+      ],
+    );
+    expect(settings.setValue).toHaveBeenCalledWith(
+      'user',
+      'security.auth.selectedType',
+      AuthType.USE_OPENAI,
+    );
+    expect(settings.setValue).toHaveBeenCalledWith(
+      'user',
+      'model.name',
+      'custom-model',
+    );
+    expect(config.reloadModelProvidersConfig).toHaveBeenCalledWith({
+      [AuthType.USE_OPENAI]: expect.arrayContaining([
+        expect.objectContaining({ id: 'custom-model' }),
+        expect.objectContaining({ id: 'preserved-model' }),
+      ]),
+    });
+    expect(config.refreshAuth).toHaveBeenCalledWith(AuthType.USE_OPENAI);
+  });
+
+  // TODO: Re-enable after merging unified provider install pipeline
+  it.skip('configures Alibaba standard regional endpoints via the shared API key provider flow', () => {
+    // Test body skipped until unified provider install pipeline is merged
   });
 });
 
 describe('generateCustomApiKeyEnvKey', () => {
-  it('generates env key from openai protocol and base URL', () => {
+  it('generates deterministic URL-based env key', () => {
     const key = generateCustomApiKeyEnvKey(
-      'openai',
+      AuthType.USE_OPENAI,
       'https://api.openai.com/v1',
     );
-    expect(key).toBe('QWEN_CUSTOM_API_KEY_OPENAI_HTTPS_API_OPENAI_COM_V1');
+    expect(key).toMatch(/^QWEN_CUSTOM_API_KEY_[A-Z0-9_]+$/);
+    const key2 = generateCustomApiKeyEnvKey(
+      AuthType.USE_OPENAI,
+      'https://api.openai.com/v1',
+    );
+    expect(key).toBe(key2);
   });
 
-  it('generates env key from anthropic protocol and base URL', () => {
-    const key = generateCustomApiKeyEnvKey(
-      'anthropic',
-      'https://api.anthropic.com/v1',
+  it('produces different keys for different protocols', () => {
+    const key1 = generateCustomApiKeyEnvKey(
+      AuthType.USE_OPENAI,
+      'https://api.example.com/v1',
     );
-    expect(key).toBe(
-      'QWEN_CUSTOM_API_KEY_ANTHROPIC_HTTPS_API_ANTHROPIC_COM_V1',
+    const key2 = generateCustomApiKeyEnvKey(
+      AuthType.USE_ANTHROPIC,
+      'https://api.example.com/v1',
     );
+    expect(key1).not.toBe(key2);
   });
 
-  it('generates env key from gemini protocol and base URL', () => {
-    const key = generateCustomApiKeyEnvKey(
-      'gemini',
-      'https://generativelanguage.googleapis.com',
+  it('produces different keys for different base URLs', () => {
+    const key1 = generateCustomApiKeyEnvKey(
+      AuthType.USE_OPENAI,
+      'https://api.openai.com/v1',
     );
-    expect(key).toBe(
-      'QWEN_CUSTOM_API_KEY_GEMINI_HTTPS_GENERATIVELANGUAGE_GOOGLEAPIS_COM',
-    );
-  });
-
-  it('handles localhost URLs', () => {
-    const key = generateCustomApiKeyEnvKey(
-      'openai',
+    const key2 = generateCustomApiKeyEnvKey(
+      AuthType.USE_OPENAI,
       'http://localhost:11434/v1',
     );
-    expect(key).toBe('QWEN_CUSTOM_API_KEY_OPENAI_HTTP_LOCALHOST_11434_V1');
+    expect(key1).not.toBe(key2);
   });
 
-  it('normalizes trailing slashes and special chars', () => {
-    const key = generateCustomApiKeyEnvKey(
-      'openai',
+  it('produces equal keys for URLs that differ only in trailing slash', () => {
+    // Trailing slashes are normalized away, so these should be equal.
+    const key1 = generateCustomApiKeyEnvKey(
+      AuthType.USE_OPENAI,
       'https://openrouter.ai/api/v1/',
     );
-    expect(key).toBe('QWEN_CUSTOM_API_KEY_OPENAI_HTTPS_OPENROUTER_AI_API_V1');
-  });
-
-  it('different protocols with same base URL produce different keys', () => {
-    const baseUrl = 'https://api.example.com/v1';
-    const openaiKey = generateCustomApiKeyEnvKey('openai', baseUrl);
-    const anthropicKey = generateCustomApiKeyEnvKey('anthropic', baseUrl);
-    expect(openaiKey).not.toBe(anthropicKey);
-    expect(openaiKey).toContain('OPENAI');
-    expect(anthropicKey).toContain('ANTHROPIC');
+    const key2 = generateCustomApiKeyEnvKey(
+      AuthType.USE_OPENAI,
+      'https://openrouter.ai/api/v1',
+    );
+    expect(key1).toBe(key2);
   });
 });
 

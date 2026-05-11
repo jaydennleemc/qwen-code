@@ -54,6 +54,8 @@ export interface ContentGenerator {
 
 export enum AuthType {
   USE_OPENAI = 'openai',
+  USE_LM_STUDIO = 'lm-studio',
+  USE_OLLAMA = 'ollama',
   QWEN_OAUTH = 'qwen-oauth',
   USE_GEMINI = 'gemini',
   USE_VERTEX_AI = 'vertex-ai',
@@ -99,7 +101,16 @@ export type ContentGeneratorConfig = {
   reasoning?:
     | false
     | {
-        effort?: 'low' | 'medium' | 'high';
+        // 'max' is supported by providers that document an extra-strong
+        // reasoning tier — currently DeepSeek's `reasoning_effort` (see
+        // https://api-docs.deepseek.com/zh-cn/api/create-chat-completion).
+        // Real Anthropic only accepts low/medium/high; the Anthropic
+        // generator clamps 'max' down to 'high' (logged once per generator
+        // via debugLogger.warn) when the baseURL doesn't look like a
+        // DeepSeek-compatible endpoint, so configurations targeting
+        // DeepSeek don't 400 when the same auth profile is reused against
+        // api.anthropic.com.
+        effort?: 'low' | 'medium' | 'high' | 'max';
         budget_tokens?: number;
       };
   proxy?: string | undefined;
@@ -238,8 +249,12 @@ export function validateModelConfig(
     return { valid: true, errors: [] };
   }
 
+  const isLocalModelProvider =
+    config.authType === AuthType.USE_OLLAMA ||
+    config.authType === AuthType.USE_LM_STUDIO;
+
   // API key is required for all other auth types
-  if (!config.apiKey) {
+  if (!config.apiKey && !isLocalModelProvider) {
     if (isStrictModelProvider) {
       errors.push(
         new StrictMissingCredentialsError(
@@ -318,7 +333,11 @@ export async function createContentGenerator(
 
   let baseGenerator: ContentGenerator;
 
-  if (authType === AuthType.USE_OPENAI) {
+  if (
+    authType === AuthType.USE_OPENAI ||
+    authType === AuthType.USE_LM_STUDIO ||
+    authType === AuthType.USE_OLLAMA
+  ) {
     const { createOpenAIContentGenerator } = await import(
       './openaiContentGenerator/index.js'
     );
