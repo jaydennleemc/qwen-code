@@ -46,6 +46,15 @@ export {
   validateModelConfig,
 } from './models/index.js';
 
+// Coding plan constants
+export {
+  CodingPlanRegion,
+  type CodingPlanTemplate,
+  CODING_PLAN_ENV_KEY,
+  getCodingPlanConfig,
+  isCodingPlanConfig,
+} from './constants/codingPlan.js';
+
 // Output formatting
 export * from './output/json-formatter.js';
 export * from './output/types.js';

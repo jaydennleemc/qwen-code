@@ -8,7 +8,14 @@ import { createServer, type Server } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 import open from 'open';
 
-import { type ProviderModelConfig as ModelConfig } from '@qwen-code/qwen-code-core';
+import {
+  AuthType,
+  type Config,
+  type ModelProvidersConfig,
+  type ProviderModelConfig as ModelConfig,
+} from '@qwen-code/qwen-code-core';
+import type { LoadedSettings } from '../../../config/settings.js';
+import { getPersistScopeForModelSelection } from '../../../config/modelProvidersScope.js';
 
 export const OPENROUTER_ENV_KEY = 'OPENROUTER_API_KEY';
 export const OPENROUTER_DEFAULT_MODEL = 'z-ai/glm-4.5-air:free';
@@ -550,6 +557,66 @@ export async function getOpenRouterModelsWithFallback(): Promise<
   } catch {
     return OPENROUTER_DEFAULT_MODELS;
   }
+}
+
+export interface ApplyOpenRouterModelsResult {
+  updatedConfigs: ModelConfig[];
+  activeModelId?: string;
+  persistScope: ReturnType<typeof getPersistScopeForModelSelection>;
+}
+
+export async function applyOpenRouterModelsConfiguration(params: {
+  settings: LoadedSettings;
+  config: Config;
+  apiKey: string;
+  reloadConfig: boolean;
+}): Promise<ApplyOpenRouterModelsResult> {
+  const { settings, config, apiKey, reloadConfig } = params;
+  const persistScope = getPersistScopeForModelSelection(settings);
+
+  settings.setValue(persistScope, `env.${OPENROUTER_ENV_KEY}`, apiKey);
+  process.env[OPENROUTER_ENV_KEY] = apiKey;
+
+  const existingConfigs =
+    (settings.merged.modelProviders as ModelProvidersConfig | undefined)?.[
+      AuthType.USE_OPENAI
+    ] || [];
+  const openRouterCatalog = await getOpenRouterModelsWithFallback();
+  const openRouterModels = selectRecommendedOpenRouterModels(openRouterCatalog);
+  const updatedConfigs = mergeOpenRouterConfigs(
+    existingConfigs,
+    openRouterModels,
+  );
+
+  settings.setValue(
+    persistScope,
+    `modelProviders.${AuthType.USE_OPENAI}`,
+    updatedConfigs,
+  );
+  settings.setValue(
+    persistScope,
+    'security.auth.selectedType',
+    AuthType.USE_OPENAI,
+  );
+
+  const activeModelId = getPreferredOpenRouterModelId(updatedConfigs);
+  if (activeModelId) {
+    settings.setValue(persistScope, 'model.name', activeModelId);
+  }
+
+  if (reloadConfig) {
+    const updatedModelProviders: ModelProvidersConfig = {
+      ...(settings.merged.modelProviders as ModelProvidersConfig | undefined),
+      [AuthType.USE_OPENAI]: updatedConfigs,
+    };
+    config.reloadModelProvidersConfig(updatedModelProviders);
+  }
+
+  return {
+    updatedConfigs,
+    activeModelId,
+    persistScope,
+  };
 }
 
 export async function exchangeAuthCodeForApiKey(params: {

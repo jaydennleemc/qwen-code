@@ -7,3 +7,4 @@ export const DEFAULT_DASHSCOPE_BASE_URL =
 export const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
 export const DEFAULT_OPEN_ROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export const DASHSCOPE_PROXY_BASE_URL = process.env['DASHSCOPE_PROXY_BASE_URL'];
+export const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434/v1';

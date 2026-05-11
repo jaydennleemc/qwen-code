@@ -92,6 +92,45 @@ function getPrefixWidth(prefix: string): number {
   return stringWidth(prefix) + 1;
 }
 
+function parseThinkingContent(text: string): {
+  thinkingContent: string;
+  mainContent: string;
+  hasThinking: boolean;
+} {
+  // Match <think>...</think> or <thinking>...</thinking> (case-insensitive)
+  // Also handles variations like <Think>, </THINK>, etc.
+  const thinkPattern = /<think(?:ing)?[^>]*>([\s\S]*?)<\/think(?:ing)?[^>]*>/g;
+  const matches = [...text.matchAll(thinkPattern)];
+
+  if (matches.length === 0) {
+    return { thinkingContent: '', mainContent: text, hasThinking: false };
+  }
+
+  const thinkingParts: string[] = [];
+  for (const match of matches) {
+    const content = match[1]?.trim();
+    if (content) {
+      thinkingParts.push(content);
+    }
+  }
+
+  const hasThinking = thinkingParts.length > 0;
+  if (!hasThinking) {
+    return { thinkingContent: '', mainContent: text, hasThinking: false };
+  }
+
+  // Remove all think blocks from the original text to get clean main content
+  let mainContent = text;
+  for (const match of matches) {
+    mainContent = mainContent.replace(match[0], '');
+  }
+  mainContent = mainContent.trim();
+
+  const thinkingContent = thinkingParts.join('\n') + '\n';
+
+  return { thinkingContent, mainContent, hasThinking };
+}
+
 const PrefixedTextMessage: React.FC<PrefixedTextMessageProps> = ({
   text,
   prefix,
@@ -137,6 +176,9 @@ const PrefixedMarkdownMessage: React.FC<PrefixedMarkdownMessageProps> = ({
 }) => {
   const prefixWidth = getPrefixWidth(prefix);
 
+  const { thinkingContent, mainContent, hasThinking } =
+    parseThinkingContent(text);
+
   return (
     <Box flexDirection="row">
       <Box width={prefixWidth}>
@@ -144,15 +186,28 @@ const PrefixedMarkdownMessage: React.FC<PrefixedMarkdownMessageProps> = ({
           {prefix}
         </Text>
       </Box>
+
       <Box flexGrow={1} flexDirection="column">
-        <MarkdownDisplay
-          text={text}
-          isPending={isPending}
-          availableTerminalHeight={availableTerminalHeight}
-          contentWidth={contentWidth - prefixWidth}
-          textColor={textColor}
-          sourceCopyIndexOffsets={sourceCopyIndexOffsets}
-        />
+        {hasThinking && (
+          <MarkdownDisplay
+            text={thinkingContent}
+            isPending={isPending}
+            availableTerminalHeight={availableTerminalHeight}
+            contentWidth={contentWidth - prefixWidth}
+            textColor="gray"
+            sourceCopyIndexOffsets={sourceCopyIndexOffsets}
+          />
+        )}
+        {mainContent && (
+          <MarkdownDisplay
+            text={mainContent}
+            isPending={isPending}
+            availableTerminalHeight={availableTerminalHeight}
+            contentWidth={contentWidth - prefixWidth}
+            textColor={textColor}
+            sourceCopyIndexOffsets={sourceCopyIndexOffsets}
+          />
+        )}
       </Box>
     </Box>
   );
@@ -171,16 +226,30 @@ const ContinuationMarkdownMessage: React.FC<
 }) => {
   const prefixWidth = getPrefixWidth(basePrefix);
 
+  const { thinkingContent, mainContent, hasThinking } =
+    parseThinkingContent(text);
+
   return (
     <Box flexDirection="column" paddingLeft={prefixWidth}>
-      <MarkdownDisplay
-        text={text}
-        isPending={isPending}
-        availableTerminalHeight={availableTerminalHeight}
-        contentWidth={contentWidth - prefixWidth}
-        textColor={textColor}
-        sourceCopyIndexOffsets={sourceCopyIndexOffsets}
-      />
+      {hasThinking && (
+        <MarkdownDisplay
+          text={thinkingContent}
+          isPending={isPending}
+          availableTerminalHeight={availableTerminalHeight}
+          contentWidth={contentWidth - prefixWidth}
+          textColor="gray"
+          sourceCopyIndexOffsets={sourceCopyIndexOffsets}
+        />
+      )}
+      {mainContent && (
+        <MarkdownDisplay
+          text={mainContent}
+          isPending={isPending}
+          availableTerminalHeight={availableTerminalHeight}
+          contentWidth={contentWidth - prefixWidth}
+          textColor={textColor}
+        />
+      )}
     </Box>
   );
 };
@@ -214,7 +283,6 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
   isPending,
   availableTerminalHeight,
   contentWidth,
-  sourceCopyIndexOffsets,
 }) => (
   <PrefixedMarkdownMessage
     text={text}
@@ -224,26 +292,18 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
     isPending={isPending}
     availableTerminalHeight={availableTerminalHeight}
     contentWidth={contentWidth}
-    sourceCopyIndexOffsets={sourceCopyIndexOffsets}
   />
 );
 
 export const AssistantMessageContent: React.FC<
   AssistantMessageContentProps
-> = ({
-  text,
-  isPending,
-  availableTerminalHeight,
-  contentWidth,
-  sourceCopyIndexOffsets,
-}) => (
+> = ({ text, isPending, availableTerminalHeight, contentWidth }) => (
   <ContinuationMarkdownMessage
     text={text}
     isPending={isPending}
     availableTerminalHeight={availableTerminalHeight}
     contentWidth={contentWidth}
     basePrefix="✦"
-    sourceCopyIndexOffsets={sourceCopyIndexOffsets}
   />
 );
 

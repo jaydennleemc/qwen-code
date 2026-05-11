@@ -25,6 +25,8 @@ const AUTH_ENV_MODEL_VARS: Record<AuthType, string[]> = {
   [AuthType.USE_VERTEX_AI]: ['GOOGLE_MODEL'],
   [AuthType.USE_ANTHROPIC]: ['ANTHROPIC_MODEL'],
   [AuthType.QWEN_OAUTH]: [],
+  [AuthType.USE_LM_STUDIO]: ['LM_STUDIO_MODEL'],
+  [AuthType.USE_OLLAMA]: ['OLLAMA_MODEL'],
 };
 
 function getIgnoredTopLevelGenerationConfigFields(
@@ -105,6 +107,10 @@ export function getAuthTypeFromEnv(): AuthType | undefined {
     process.env['OPENAI_BASE_URL']
   ) {
     return AuthType.USE_OPENAI;
+  }
+
+  if (process.env['LMSTUDIO_API_KEY']) {
+    return AuthType.USE_LM_STUDIO;
   }
 
   if (process.env['GEMINI_API_KEY'] && process.env['GEMINI_MODEL']) {
