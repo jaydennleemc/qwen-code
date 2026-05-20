@@ -85,7 +85,6 @@ type ViewLevel =
   | 'custom-advanced-config'
   | 'custom-review-json'
   | 'oauth-provider-select'
-  | 'custom-info'
   | 'lm-studio-input'
   | 'ollama-input'
   | 'ollama-models';

@@ -1,6 +1,6 @@
 {
-  "name": "@jaydennleemc/qwen-code-local-core",
-  "version": "0.15.10",
+  "name": "@qwen-code/qwen-code-core",
+  "version": "0.15.11",
   "description": "Qwen Code Core",
   "repository": {
     "type": "git",
